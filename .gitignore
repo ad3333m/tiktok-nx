@@ -1,0 +1,9 @@
+build/
+TikTok.nro
+TikTok.elf
+TikTok.nacp
+TikTok.map
+data/
+*.o
+*.d
+preview/

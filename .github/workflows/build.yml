@@ -1,0 +1,78 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: desktop build + preview
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake pkg-config libsdl2-dev libfreetype-dev libcurl4-openssl-dev \
+            libwebp-dev zlib1g-dev fonts-dejavu-core libavformat-dev libavcodec-dev libswresample-dev \
+            libswscale-dev libavutil-dev >/dev/null
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build -j$(nproc)
+      # Plays the real For You feed headless and screenshots it.
+      - name: Preview
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          mkdir -p preview
+          timeout 300 ./build/tiktok --shots preview || true
+          cat data/log.txt || true
+          ls -la preview
+      - name: Publish preview
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view preview >/dev/null 2>&1 || \
+            gh release create preview --prerelease --title "UI preview" --notes "Screenshots from the CI run."
+          gh release upload preview preview/*.png data/log.txt --clobber
+
+  switch:
+    name: Switch nro
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Portlibs
+        run: |
+          dkp-pacman -S --noconfirm --needed switch-sdl2 switch-freetype switch-curl switch-libwebp \
+            switch-zlib switch-bzip2 switch-libpng switch-mbedtls switch-ffmpeg || true
+          $DEVKITPRO/portlibs/switch/bin/aarch64-none-elf-pkg-config --exists sdl2 freetype2 libcurl libwebp libavcodec
+      - name: Build
+        run: make -j$(nproc)
+      - name: Publish
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          if ! command -v gh >/dev/null; then
+            curl -fsSL https://github.com/cli/cli/releases/download/v2.100.0/gh_2.100.0_linux_amd64.tar.gz | tar xz -C /tmp
+            export PATH="/tmp/gh_2.100.0_linux_amd64/bin:$PATH"
+          fi
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create latest --repo "$GITHUB_REPOSITORY" --title "TikTok" --notes "Copy TikTok.nro to sdmc:/switch/ and open it from the Homebrew Menu."
+          for i in 1 2 3 4; do
+            gh release upload latest TikTok.nro --clobber --repo "$GITHUB_REPOSITORY" && exit 0
+            echo "upload failed, retrying in $((i * 10))s"; sleep $((i * 10))
+          done
+          exit 1
