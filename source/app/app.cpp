@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 
 #include "net/async.h"
 #include "tiktok/player.h"
@@ -227,7 +228,10 @@ bool App::Frame(const Platform::Input& in, float dt) {
         Like();
     }
     if (Ui::Pressed(BTN_Y) || (commentsOpen && Ui::Pressed(BTN_B))) ToggleComments();
-    if (Ui::Pressed(BTN_MINUS)) ChangeRegion();
+    if (Ui::Pressed(BTN_MINUS)) {
+        ChangeRegion();
+        v = Current();
+    }
     int seek = (Ui::Pressed(BTN_R) || Ui::Repeat(BTN_RIGHT)) - (Ui::Pressed(BTN_L) || Ui::Repeat(BTN_LEFT));
     if (seek && v) {
         if (v->images.size() > 1) {
