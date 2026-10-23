@@ -39,6 +39,8 @@ FT_Library g_ft = nullptr;
 std::array<FT_Face, (int)Face::Count> g_primary{};
 std::vector<FT_Face> g_fallback;
 std::vector<std::vector<uint8_t>> g_fileData;  // FT_New_Memory_Face needs the bytes alive
+std::string g_family = "TikTok Sans";
+bool g_synthBold = false;  // one-weight font: embolden Bold/SemiBold ourselves
 std::vector<Page> g_pages;
 std::unordered_map<uint64_t, GlyphRec> g_glyphs;
 std::unordered_map<uint32_t, std::unique_ptr<std::array<const GlyphRec*, 128>>> g_ascii;
@@ -105,7 +107,7 @@ const GlyphRec* Rasterize(uint32_t cp, Face f, int size) {
     if (!face) return &(g_glyphs[key] = rec);
     FT_Set_Pixel_Sizes(face, 0, (FT_UInt)size);
     if (FT_Load_Glyph(face, index, FT_LOAD_DEFAULT | FT_LOAD_TARGET_LIGHT) != 0) return &(g_glyphs[key] = rec);
-    if (fallback && (f == Face::Bold || f == Face::SemiBold)) FT_GlyphSlot_Embolden(face->glyph);
+    if ((fallback || g_synthBold) && (f == Face::Bold || f == Face::SemiBold)) FT_GlyphSlot_Embolden(face->glyph);
     if (fallback && f == Face::Italic) FT_GlyphSlot_Oblique(face->glyph);
     if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL) != 0) return &(g_glyphs[key] = rec);
 
@@ -167,19 +169,37 @@ bool Invisible(uint32_t cp) { return cp == 0xFE0F || cp == 0xFE0E || cp == 0x200
 
 bool Init() {
     if (FT_Init_FreeType(&g_ft) != 0) return false;
-    g_primary[(int)Face::Regular] = OpenFace("fonts/Inter-Regular.ttf");
-    g_primary[(int)Face::Medium] = OpenFace("fonts/Inter-Medium.ttf");
-    g_primary[(int)Face::SemiBold] = OpenFace("fonts/Inter-SemiBold.ttf");
-    g_primary[(int)Face::Bold] = OpenFace("fonts/Inter-Bold.ttf");
-    g_primary[(int)Face::Italic] = OpenFace("fonts/Inter-Italic.ttf");
-    g_primary[(int)Face::Mono] = OpenFace("fonts/JetBrainsMono-Regular.ttf");
+    std::vector<FT_Face> system;
     for (const auto& blob : Platform::SystemFonts()) {
         FT_Face face = nullptr;
         if (FT_New_Memory_Face(g_ft, static_cast<const FT_Byte*>(blob.data), (FT_Long)blob.size, 0, &face) == 0)
-            g_fallback.push_back(face);
+            system.push_back(face);
     }
-    // Inter covers Latin/Greek/Cyrillic; symbols missing from Mono fall back to Inter.
-    if (g_primary[(int)Face::Regular]) g_fallback.insert(g_fallback.begin(), g_primary[(int)Face::Regular]);
+    g_synthBold = false;
+    if (g_family == "Nintendo" && !system.empty()) {
+        for (int f = 0; f < (int)Face::Count; f++) g_primary[f] = system[0];
+        g_primary[(int)Face::Mono] = OpenFace("fonts/JetBrainsMono-Regular.ttf");
+        g_synthBold = true;
+    } else {
+        // Minecraft is Monocraft; it has no Medium, so Medium uses its Regular.
+        std::string file = g_family == "Minecraft" ? "Monocraft" : g_family == "Inter" ? "Inter" : "TikTokSans";
+        g_primary[(int)Face::Regular] = OpenFace("fonts/" + file + "-Regular.ttf");
+        g_primary[(int)Face::Medium] = file == "Monocraft" ? g_primary[(int)Face::Regular]
+                                                           : OpenFace("fonts/" + file + "-Medium.ttf");
+        g_primary[(int)Face::SemiBold] = OpenFace("fonts/" + file + "-SemiBold.ttf");
+        g_primary[(int)Face::Bold] = OpenFace("fonts/" + file + "-Bold.ttf");
+        g_primary[(int)Face::Italic] = OpenFace("fonts/" + file + "-Italic.ttf");
+        g_primary[(int)Face::Mono] = file == "Monocraft" ? g_primary[(int)Face::Regular]
+                                                         : OpenFace("fonts/JetBrainsMono-Regular.ttf");
+    }
+    // Symbols the chosen font lacks come from Inter, then the console's fonts (CJK, Korean).
+    g_fallback.clear();
+    if (g_family != "Inter") {
+        if (FT_Face inter = OpenFace("fonts/Inter-Regular.ttf")) g_fallback.push_back(inter);
+    } else if (g_primary[(int)Face::Regular]) {
+        g_fallback.push_back(g_primary[(int)Face::Regular]);
+    }
+    g_fallback.insert(g_fallback.end(), system.begin(), system.end());
     return g_primary[(int)Face::Regular] != nullptr;
 }
 
@@ -189,9 +209,22 @@ void Shutdown() {
     g_pages.clear();
     g_glyphs.clear();
     g_ascii.clear();
-    if (g_ft) FT_Done_FreeType(g_ft);
+    g_metrics.clear();
+    g_primary.fill(nullptr);
+    g_fallback.clear();
+    if (g_ft) FT_Done_FreeType(g_ft);  // frees every face
     g_ft = nullptr;
+    g_fileData.clear();
 }
+
+bool SetFamily(const std::string& family) {
+    if (family == g_family && g_ft) return true;
+    Shutdown();
+    g_family = family;
+    return Init();
+}
+
+const std::string& Family() { return g_family; }
 
 Metrics GetMetrics(Face f, int size) {
     auto it = g_metrics.find(SizeKey(f, size));

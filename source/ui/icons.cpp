@@ -5,6 +5,12 @@
 #include <cmath>
 
 #include <cstdio>
+#include <map>
+
+#define NANOSVG_IMPLEMENTATION
+#include "nanosvg.h"
+#define NANOSVGRAST_IMPLEMENTATION
+#include "nanosvgrast.h"
 
 #include "platform/platform.h"
 #include "ui/images.h"
@@ -242,50 +248,52 @@ void Logo(float x, float y, float h, float alpha) {
     else Text::Draw("TikTok", x, y, Face::Bold, (int)(h * 0.8f), Color(255, 255, 255).Alpha(alpha));
 }
 
-void Heart(float cx, float cy, float s, Color c) {
-    Pen p{cx, cy, s};
-    Gfx::FillCircle(cx - s * 0.235f, cy - s * 0.14f, s * 0.255f, c);
-    Gfx::FillCircle(cx + s * 0.235f, cy - s * 0.14f, s * 0.255f, c);
-    p.Poly({{-0.47f, -0.06f}, {0.47f, -0.06f}, {0.0f, 0.43f}}, c);
-    p.Poly({{-0.2f, -0.2f}, {0.2f, -0.2f}, {0.2f, 0.1f}, {-0.2f, 0.1f}}, c);
-}
-
-void Bubble(float cx, float cy, float s, Color c, Color dots) {
-    Pen p{cx, cy, s};
-    Gfx::FillRound(Rect{cx - s * 0.46f, cy - s * 0.4f, s * 0.92f, s * 0.7f}, s * 0.3f, c);
-    p.Poly({{-0.12f, 0.25f}, {0.16f, 0.25f}, {-0.08f, 0.46f}}, c);
-    for (int i = -1; i <= 1; i++) Gfx::FillCircle(cx + i * s * 0.2f, cy - s * 0.05f, s * 0.065f, dots);
-}
-
-void Bookmark(float cx, float cy, float s, Color c, Color notch) {
-    Pen p{cx, cy, s};
-    Gfx::FillRound(Rect{cx - s * 0.3f, cy - s * 0.42f, s * 0.6f, s * 0.84f}, s * 0.08f, c);
-    p.Poly({{-0.31f, 0.43f}, {0.31f, 0.43f}, {0.0f, 0.16f}}, notch);
-}
-
-void Share(float cx, float cy, float s, Color c) {
-    Pen p{cx, cy, s};
-    p.Poly({{0.08f, -0.44f}, {0.46f, -0.06f}, {0.08f, 0.32f}}, c);
-    p.Poly({{0.1f, -0.2f}, {0.1f, 0.08f}, {-0.1f, 0.1f}, {-0.1f, -0.2f}}, c);
-    std::vector<SDL_FPoint> curve;
-    for (int i = 0; i <= 12; i++) {
-        float t = i / 12.0f;
-        float x = -0.42f + t * 0.54f, y = 0.36f - std::sin(t * kPi * 0.5f) * 0.42f;
-        curve.push_back(p.P(x, y));
+// Font Awesome solid icons from romfs/icons, rasterised by nanosvg into white
+// masks (cached per size step) and tinted when drawn.
+SDL_Texture* SvgTexture(const std::string& name, int px, int* w, int* h) {
+    struct Entry {
+        SDL_Texture* tex;
+        int w, h;
+    };
+    static std::map<std::pair<std::string, int>, Entry> cache;
+    auto key = std::make_pair(name, px);
+    auto it = cache.find(key);
+    if (it == cache.end()) {
+        Entry e{nullptr, 0, 0};
+        std::string svg;
+        if (FILE* f = fopen(Platform::AssetPath("icons/" + name + ".svg").c_str(), "rb")) {
+            char buf[4096];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), f)) > 0) svg.append(buf, n);
+            fclose(f);
+        }
+        NSVGimage* img = svg.empty() ? nullptr : nsvgParse(svg.data(), "px", 96);
+        if (img && img->width > 0 && img->height > 0) {
+            float scale = px / std::max(img->width, img->height);
+            e.w = std::max(1, (int)std::ceil(img->width * scale));
+            e.h = std::max(1, (int)std::ceil(img->height * scale));
+            std::string rgba((size_t)e.w * e.h * 4, '\0');
+            NSVGrasterizer* rast = nsvgCreateRasterizer();
+            nsvgRasterize(rast, img, 0, 0, scale, (unsigned char*)rgba.data(), e.w, e.h, e.w * 4);
+            nsvgDeleteRasterizer(rast);
+            for (size_t i = 0; i < rgba.size(); i += 4) rgba[i] = rgba[i + 1] = rgba[i + 2] = (char)255;
+            e.tex = Images::MakeTexture(rgba, e.w, e.h);
+        }
+        if (img) nsvgDelete(img);
+        it = cache.emplace(key, e).first;
     }
-    Gfx::Polyline(curve, s * 0.2f, c);
+    *w = it->second.w;
+    *h = it->second.h;
+    return it->second.tex;
 }
 
-void Note(float cx, float cy, float s, Color c) {
-    Pen p{cx, cy, s};
-    Gfx::FillCircle(cx - s * 0.12f, cy + s * 0.26f, s * 0.17f, c);
-    p.L(0.03f, 0.26f, 0.03f, -0.42f, 0.1f, c);
-    p.Poly({{-0.02f, -0.46f}, {0.36f, -0.3f}, {0.36f, -0.12f}, {-0.02f, -0.28f}}, c);
-}
-
-void Play(float cx, float cy, float s, Color c) {
-    Pen p{cx, cy, s};
-    p.Poly({{-0.3f, -0.42f}, {0.44f, 0.0f}, {-0.3f, 0.42f}}, c);
+void Svg(const char* name, float cx, float cy, float s, Color c) {
+    int px = std::max(16, ((int)std::ceil(s) + 15) / 16 * 16);
+    int w = 0, h = 0;
+    SDL_Texture* tex = SvgTexture(name, px, &w, &h);
+    if (!tex) return;
+    float k = s / px;
+    Gfx::Image(tex, Rect{cx - w * k / 2, cy - h * k / 2, w * k, h * k}, 0, c);
 }
 
 void Status(float cx, float cy, float r, const std::string& status, Color ring) {

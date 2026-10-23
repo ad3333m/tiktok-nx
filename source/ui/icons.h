@@ -35,12 +35,8 @@ void Eye(float cx, float cy, float s, Color c);
 void Spinner(float cx, float cy, float r, Color c, double t);
 // The TikTok wordmark, h tall with its top-left at (x, y).
 void Logo(float x, float y, float h, float alpha = 1.0f);
-void Heart(float cx, float cy, float s, Color c);
-void Bubble(float cx, float cy, float s, Color c, Color dots);
-void Bookmark(float cx, float cy, float s, Color c, Color notch);
-void Share(float cx, float cy, float s, Color c);
-void Note(float cx, float cy, float s, Color c);
-void Play(float cx, float cy, float s, Color c);
+// A Font Awesome icon from romfs/icons/<name>.svg, s pixels on its long side.
+void Svg(const char* name, float cx, float cy, float s, Color c);
 void Status(float cx, float cy, float r, const std::string& status, Color ring);
 
 // Controller button glyph ("A", "B", "ZL", "+" ...). Returns the width used.

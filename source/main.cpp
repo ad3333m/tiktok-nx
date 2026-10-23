@@ -102,7 +102,24 @@ int main(int argc, char** argv) {
                          a.Go(a.cur + 1);
                      }},
                     {"next", Shots::Playing, [](App&) { Player::SetPaused(true); }},
-                    {"paused", [](App&, double t) { return t > 1; }, nullptr},
+                    {"paused", [](App&, double t) { return t > 1; },
+                     [](App& a) {
+                         a.settingsOpen = true;
+                         a.dropdown = 0;
+                     }},
+                    {"settings-region", [](App&, double t) { return t > 1; },
+                     [](App& a) {
+                         a.dropdown = 1;
+                         a.settingsSel = 1;
+                     }},
+                    {"settings-font", [](App&, double t) { return t > 1; },
+                     [](App& a) {
+                         a.settingsOpen = false;
+                         a.font = "Minecraft";
+                         Text::SetFamily(a.font);
+                         Player::SetPaused(false);
+                     }},
+                    {"minecraft-font", [](App&, double t) { return t > 2; }, nullptr},
                 }};
 #endif
     uint64_t last = SDL_GetPerformanceCounter();

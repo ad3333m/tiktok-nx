@@ -18,6 +18,9 @@ struct Metrics {
 
 bool Init();
 void Shutdown();
+// "TikTok Sans" (default), "Minecraft", "Inter" or "Nintendo". Reloads every glyph.
+bool SetFamily(const std::string& family);
+const std::string& Family();
 
 Metrics GetMetrics(Face f, int size);
 // Advance of one code point (no emoji handling).

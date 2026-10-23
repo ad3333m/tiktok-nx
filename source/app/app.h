@@ -8,11 +8,15 @@
 #include "tiktok/api.h"
 #include "ui/gfx.h"
 
-// The whole app is one For You screen: the video in a 9:16 card, TikTok's action
-// rail beside it, and either "Up next" or the comments on the right.
+// One For You screen: the video in a tall card, TikTok's action rail beside it,
+// and either "Up next" or the comments on the right. Settings open on top.
 struct App {
     bool quit = false;
-    std::string region = "US";
+
+    // Settings (sdmc:/switch/TikTok/settings.txt).
+    std::string region = "GB";
+    std::string font = "TikTok Sans";
+    bool fillVideo = true;  // Large: crop portrait videos to fill the card
 
     std::vector<Api::Video> feed;
     std::set<std::string> seen, liked, saved;
@@ -37,6 +41,12 @@ struct App {
     std::string commentsError;
     float commentsScroll = 0, commentsMax = 0;
 
+    bool settingsOpen = false;
+    int settingsSel = 0;
+    int dropdown = -1;  // which setting's list is open
+    int dropSel = 0;
+    float dropScroll = 0;
+
     double heartAt = -10;
     float heartX = 0, heartY = 0;
     double lastTap = -10;
@@ -55,7 +65,9 @@ struct App {
     void Like();
     void ToggleComments();
     void LoadComments();
-    void ChangeRegion();
+    void SetRegion(const std::string& code);
+    void SaveSettings();
+    void UpdateSettings();
     void Toast(const std::string& text);
 
     void Draw();
@@ -64,5 +76,6 @@ struct App {
     void DrawRail(const Rect& card);
     void DrawUpNext(const Rect& area);
     void DrawComments(const Rect& area);
+    void DrawSettings();
     const Api::Video* Current() const { return cur >= 0 && cur < (int)feed.size() ? &feed[cur] : nullptr; }
 };
