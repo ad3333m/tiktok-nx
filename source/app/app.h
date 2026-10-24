@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "platform/platform.h"
+#include "tiktok/account.h"
 #include "tiktok/api.h"
 #include "ui/gfx.h"
 
@@ -17,6 +18,12 @@ struct App {
     std::string region = "GB";
     std::string font = "TikTok Sans";
     bool fillVideo = true;  // Large: crop portrait videos to fill the card
+    std::string proxyUrl, proxyKey;
+
+    // Signed-in account (set when the proxy pings OK).
+    Account::User me;
+    bool meKnown = false;
+    std::string meError;
 
     std::vector<Api::Video> feed;
     std::set<std::string> seen, liked, saved;

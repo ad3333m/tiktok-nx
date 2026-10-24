@@ -53,8 +53,10 @@ const Setting kSettings[] = {
     {"Region", "Whose For You feed you see"},
     {"Font", "Text across the app"},
     {"Video size", "Large fills the card, Fit shows the whole frame"},
+    {"Helper URL", "Address of a helper you run yourself"},
+    {"Helper key", "Password for your helper"},
 };
-constexpr int kSettingCount = 3;
+constexpr int kSettingCount = 5;
 constexpr float kRowH = 76, kOptH = 48;
 constexpr int kOptVisible = 7;
 
@@ -164,6 +166,8 @@ void App::Init() {
             if (k == "region" && v.size() == 2) region = v;
             else if (k == "font") font = v;
             else if (k == "video") fillVideo = v != "fit";
+            else if (k == "server") proxyUrl = v;
+            else if (k == "serverkey") proxyKey = v;
         }
         fclose(f);
     }
@@ -171,13 +175,22 @@ void App::Init() {
         font = "TikTok Sans";
         Text::SetFamily(font);
     }
+    Account::SetProxy(proxyUrl, proxyKey);
+    if (!proxyUrl.empty()) {
+        Account::Me([this](bool ok, Account::User u, const std::string& err) {
+            meKnown = ok;
+            me = u;
+            meError = err;
+        });
+    }
     LoadMore();
 }
 
 void App::SaveSettings() {
     FILE* f = fopen(SettingsPath().c_str(), "wb");
     if (!f) return;
-    fprintf(f, "region=%s\nfont=%s\nvideo=%s\n", region.c_str(), font.c_str(), fillVideo ? "large" : "fit");
+    fprintf(f, "region=%s\nfont=%s\nvideo=%s\nserver=%s\nserverkey=%s\n", region.c_str(), font.c_str(),
+            fillVideo ? "large" : "fit", proxyUrl.c_str(), proxyKey.c_str());
     fclose(f);
 }
 
@@ -217,11 +230,27 @@ void App::UpdateSettings() {
                 font = kFonts[i];
                 SaveSettings();
             }
-        } else {
+        } else if (row == 2) {
             fillVideo = i == 0;
             SaveSettings();
         }
         dropdown = -1;
+    };
+    auto typeIn = [&](int row) {
+        std::string out;
+        std::string& field = (row == 3) ? proxyUrl : proxyKey;
+        if (Platform::Keyboard(row == 3 ? "Helper URL" : "Helper key", field, out, 128)) {
+            field = out;
+            SaveSettings();
+            Account::SetProxy(proxyUrl, proxyKey);
+            meKnown = false;
+            meError.clear();
+            if (!proxyUrl.empty()) {
+                Account::Me([this](bool ok, Account::User u, const std::string& err) {
+                    meKnown = ok; me = u; meError = err;
+                });
+            }
+        }
     };
     // Touch picks set these; they run here so the lists stay consistent.
     static int tapRow = -1, tapOpt = -1;
@@ -229,8 +258,8 @@ void App::UpdateSettings() {
         apply(dropdown, tapOpt);
     } else if (tapRow >= 0) {
         settingsSel = tapRow;
-        dropdown = tapRow;
-        dropSel = current(tapRow);
+        if (tapRow >= 3) typeIn(tapRow);
+        else { dropdown = tapRow; dropSel = current(tapRow); }
     }
     tapRow = tapOpt = -1;
 
@@ -242,8 +271,8 @@ void App::UpdateSettings() {
     } else {
         settingsSel = std::clamp(settingsSel + Ui::NavY(), 0, kSettingCount - 1);
         if (Ui::Pressed(BTN_A)) {
-            dropdown = settingsSel;
-            dropSel = current(settingsSel);
+            if (settingsSel >= 3) { typeIn(settingsSel); }
+            else { dropdown = settingsSel; dropSel = current(settingsSel); }
         } else if (Ui::Pressed(BTN_B) || Ui::Pressed(BTN_MINUS)) {
             settingsOpen = false;
         }
@@ -520,6 +549,23 @@ void App::DrawSidebar() {
     if (!feed.empty())
         Text::Draw(Str::Format("Video %d of %d", cur + 1, (int)feed.size()), 32, 244, Face::Medium, 15, th.textFaint);
 
+    if (Account::IsConfigured()) {
+        if (meKnown) {
+            if (!me.avatar.empty()) {
+                const Images::Img* av = Images::Get(me.avatar, 96);
+                if (av && av->tex) Gfx::ImageCircle(av->tex, 34, 290, 16);
+            } else {
+                Gfx::FillCircle(34, 290, 16, th.surface3);
+            }
+            Text::Draw("@" + me.username, 60, 283, Face::SemiBold, 15, th.accent, 230);
+        } else if (!meError.empty()) {
+            Text::Draw("Helper offline", 32, 283, Face::Medium, 15, th.danger, 250);
+            Text::Draw(meError, 32, 302, Face::Regular, 12, th.textFaint, 250);
+        } else {
+            Text::Draw("Checking helper...", 32, 283, Face::Medium, 15, th.textMuted, 250);
+        }
+    }
+
     const std::vector<std::pair<std::string, std::string>> keys = {
         {"\xE2\x86\x95", "Next / previous"}, {"A", "Pause"},       {"X", "Like"},       {"Y", "Comments"},
         {"L", "Back 5s"},                     {"R", "Forward 5s"}, {"-", "Settings"}, {"+", "Exit"},
@@ -756,8 +802,12 @@ void App::DrawSettings() {
     Text::Draw("Settings", kPanel.x + 28, kPanel.y + 22, Face::Bold, 24, kWhite);
     Icon::Close(kPanel.Right() - 33, kPanel.y + 33, 16, th.text);
 
+    std::string shortUrl = proxyUrl;
+    if (shortUrl.rfind("http://", 0) == 0) shortUrl = shortUrl.substr(7);
     const std::string values[kSettingCount] = {RegionName(region), font == "Nintendo" ? "Nintendo (console)" : font,
-                                               fillVideo ? "Large" : "Fit"};
+                                               fillVideo ? "Large" : "Fit",
+                                               proxyUrl.empty() ? "Not set" : shortUrl,
+                                               proxyKey.empty() ? "Not set" : "\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"};
     for (int i = 0; i < kSettingCount; i++) {
         Rect row{kPanel.x + 16, kPanel.y + 76 + i * kRowH, kPanel.w - 32, kRowH - 8};
         if (i == settingsSel) Gfx::FillRound(row, 12, dropdown == i ? th.surface3 : th.surface2);
